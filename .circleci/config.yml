@@ -1,31 +1,71 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/configuration-reference
-version: 2.1
+name: Collect
+on:
+  # executed once a week on Sundays at 00:00
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
 
-# Define a job to be invoked later in a workflow.
-# See: https://circleci.com/docs/jobs-steps/#jobs-overview & https://circleci.com/docs/configuration-reference/#jobs
+concurrency:
+  group: ${{ github.repository }}
+  cancel-in-progress: true
+
+env:
+  # time zone
+  TZ: Asia/Shanghai
+
+  # github access token
+  GIST_PAT: ${{ secrets.GIST_PAT }}
+
+  # github username and gist id, separated by '/'
+  GIST_LINK: ${{ secrets.GIST_LINK }}
+
+  # the url to the list of airports that you maintain yourself
+  # each line include domain, coupon and invitation code, the domain must be included, and the latter two items are optional
+  CUSTOMIZE_LINK: ${{ secrets.CUSTOMIZE_LINK }}
+
+  # include special protocols, such as vless hysteria2 and hysteria
+  ENABLE_SPECIAL_PROTOCOLS: ${{ vars.ENABLE_SPECIAL_PROTOCOLS }}
+
 jobs:
-  say-hello:
-    # Specify the execution environment. You can specify an image from Docker Hub or use one of our convenience images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/executor-intro/ & https://circleci.com/docs/configuration-reference/#executor-job
-    docker:
-      # Specify the version you desire here
-      # See: https://circleci.com/developer/images/image/cimg/base
-      - image: cimg/base:current
+  process:
+    runs-on: ubuntu-latest
 
-    # Add steps to the job
-    # See: https://circleci.com/docs/jobs-steps/#steps-overview & https://circleci.com/docs/configuration-reference/#steps
     steps:
-      # Checkout the code as the first step.
-      - checkout
-      - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
 
-# Orchestrate jobs using workflows
-# See: https://circleci.com/docs/workflows/ & https://circleci.com/docs/configuration-reference/#workflows
-workflows:
-  say-hello-workflow: # This is the name of the workflow, feel free to change it to better match your workflow.
-    # Inside the workflow, you define the jobs you want to run.
-    jobs:
-      - say-hello
+      - name: Prepare
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+          architecture: "x64"
+          cache: "pip"
+
+      - name: Install
+        run: pip3 install -r requirements.txt
+
+      - name: Check
+        run: |
+          if [ -z "$GIST_PAT" ]; then
+              echo "Error: environment 'GIST_PAT' cannot be empty"
+              exit 1
+          fi
+
+          if [ -z "$GIST_LINK" ]; then
+              echo "Error: environment 'GIST_LINK' cannot be empty"
+              exit 1
+          fi
+
+          LINK_PARTS=$(echo "$GIST_LINK" | awk -F'/' 'NF==2 && $1!="" && $2!=""')
+          if [ -z "$LINK_PARTS" ]; then
+              echo "Error: environment 'GIST_LINK' is not valid, should be 'username/gist_id' format"
+              exit 1
+          fi
+
+      - name: Collect
+        run: python -u subscribe/collect.py --all --overwrite --skip
+
+      - name: Timestamp
+        run: date
